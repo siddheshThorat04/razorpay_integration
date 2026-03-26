@@ -7,7 +7,7 @@ def handle_webhook():
         data = frappe.request.get_json()
         event = data.get("event")
 
-        # process captured payments
+        # Process only captured payments
         if event != "payment.captured":
             return {"status": "ignored"}
 
@@ -17,11 +17,18 @@ def handle_webhook():
         amount = (entity.get("amount") or 0) / 100
         description = entity.get("description", "") or ""
 
-        # ✅ Extract FULL invoice name correctly
+        # 🔥 Robust invoice extraction
         invoice_name = None
+
+        # Try ACC-SINV format
         match = re.search(r'ACC-SINV-\d{4}-\d+', description)
         if match:
             invoice_name = match.group(0)
+        else:
+            # fallback: SINV → convert to ACC-SINV
+            match = re.search(r'SINV-\d{4}-\d+', description)
+            if match:
+                invoice_name = "ACC-" + match.group(0)
 
         if not invoice_name:
             frappe.log_error(
@@ -30,13 +37,21 @@ def handle_webhook():
             )
             return {"status": "no_invoice"}
 
-        # Prevent duplicate entry
+        # Prevent duplicate Payment Entry
         if frappe.db.exists("Payment Entry", {"reference_no": payment_id}):
             return {"status": "duplicate"}
 
         # Fetch invoice
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        try:
+            invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        except Exception:
+            frappe.log_error(
+                title="Invoice Fetch Error",
+                message=f"Invoice not found: {invoice_name}"
+            )
+            return {"status": "invoice_not_found"}
 
+        # Already paid check
         if invoice.outstanding_amount <= 0:
             return {"status": "already_paid"}
 
@@ -48,6 +63,7 @@ def handle_webhook():
             "party": invoice.customer,
             "company": invoice.company,
 
+            # ✅ Your correct accounts
             "paid_from": "Demo Bank Account - AD",
             "paid_to": "Accounts Receivable - AD",
 
@@ -71,7 +87,11 @@ def handle_webhook():
         pe.insert(ignore_permissions=True)
         pe.submit()
 
-        return {"status": "success"}
+        return {
+            "status": "success",
+            "invoice": invoice.name,
+            "payment_entry": pe.name
+        }
 
     except Exception:
         frappe.log_error(
