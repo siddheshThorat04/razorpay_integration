@@ -22,18 +22,18 @@ def handle_webhook():
         amount = entity.get("amount", 0) / 100  # paise → rupees
         description = entity.get("description", "") or ""
 
-        # ✅ Safe logging (no crash)
+        # ✅ Safe logging
         frappe.log_error(
             message=str(data)[:2000],
             title="Razorpay Webhook Data"
         )
 
-        # 🔍 Extract invoice from description
+        # 🔍 Extract FULL invoice name (IMPORTANT FIX)
         invoice_name = None
 
         for part in description.split():
             clean = part.strip(".,")
-            if "SINV" in clean:
+            if "SINV-" in clean:
                 invoice_name = clean
                 break
 
@@ -44,15 +44,11 @@ def handle_webhook():
             )
             return {"status": "no_invoice"}
 
-        # Remove ACC- prefix if exists
-        if "ACC-" in invoice_name:
-            invoice_name = invoice_name.replace("ACC-", "")
-
         # 🚫 Prevent duplicate Payment Entry
         if frappe.db.exists("Payment Entry", {"reference_no": payment_id}):
             return {"status": "duplicate"}
 
-        # 📦 Fetch Sales Invoice
+        # 📦 Fetch Sales Invoice (NOW CORRECT)
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
         if invoice.outstanding_amount <= 0:
