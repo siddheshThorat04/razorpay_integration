@@ -4,10 +4,12 @@ import re
 @frappe.whitelist(allow_guest=True)
 def handle_webhook():
     try:
+        # 🔥 CRITICAL FIX
+        frappe.set_user("Administrator")
+
         data = frappe.request.get_json()
         event = data.get("event")
 
-        # Process only captured payments
         if event != "payment.captured":
             return {"status": "ignored"}
 
@@ -17,45 +19,32 @@ def handle_webhook():
         amount = (entity.get("amount") or 0) / 100
         description = entity.get("description", "") or ""
 
-        # 🔥 Robust invoice extraction
+        # ✅ Invoice extraction (robust)
         invoice_name = None
 
-        # Try ACC-SINV format
         match = re.search(r'ACC-SINV-\d{4}-\d+', description)
         if match:
             invoice_name = match.group(0)
         else:
-            # fallback: SINV → convert to ACC-SINV
             match = re.search(r'SINV-\d{4}-\d+', description)
             if match:
                 invoice_name = "ACC-" + match.group(0)
 
         if not invoice_name:
-            frappe.log_error(
-                title="Razorpay Webhook Error",
-                message="Invoice not found in description"
-            )
+            frappe.log_error("Invoice not found", "Webhook")
             return {"status": "no_invoice"}
 
-        # Prevent duplicate Payment Entry
+        # Prevent duplicate
         if frappe.db.exists("Payment Entry", {"reference_no": payment_id}):
             return {"status": "duplicate"}
 
-        # Fetch invoice
-        try:
-            invoice = frappe.get_doc("Sales Invoice", invoice_name)
-        except Exception:
-            frappe.log_error(
-                title="Invoice Fetch Error",
-                message=f"Invoice not found: {invoice_name}"
-            )
-            return {"status": "invoice_not_found"}
+        # Get invoice
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
-        # Already paid check
         if invoice.outstanding_amount <= 0:
             return {"status": "already_paid"}
 
-        # ✅ Create Payment Entry
+        # ✅ Payment Entry
         pe = frappe.get_doc({
             "doctype": "Payment Entry",
             "payment_type": "Receive",
@@ -63,7 +52,6 @@ def handle_webhook():
             "party": invoice.customer,
             "company": invoice.company,
 
-            # ✅ Your correct accounts
             "paid_from": "Demo Bank Account - AD",
             "paid_to": "Accounts Receivable - AD",
 
@@ -87,15 +75,8 @@ def handle_webhook():
         pe.insert(ignore_permissions=True)
         pe.submit()
 
-        return {
-            "status": "success",
-            "invoice": invoice.name,
-            "payment_entry": pe.name
-        }
+        return {"status": "success"}
 
     except Exception:
-        frappe.log_error(
-            title="Razorpay Webhook Error",
-            message=frappe.get_traceback()
-        )
+        frappe.log_error(frappe.get_traceback(), "Webhook Error")
         return {"status": "error"}
