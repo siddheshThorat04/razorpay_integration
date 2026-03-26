@@ -3,6 +3,11 @@ import json
 import hmac
 import hashlib
 import re
+@frappe.whitelist(allow_guest=True)
+def handle_webhook():
+    frappe.log_error("WEBHOOK HIT", "RAZORPAY DEBUG")
+    return {"status": "ok"}
+
 def verify_signature(raw_body: bytes, signature: str, secret: str) -> bool:
     expected = hmac.new(
         secret.encode("utf-8"),
