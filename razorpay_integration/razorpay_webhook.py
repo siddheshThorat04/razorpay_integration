@@ -52,7 +52,7 @@ def handle_webhook():
             "party": invoice.customer,
             "company": invoice.company,
 
-            "paid_from": "Accounts Receivable - AD"
+            "paid_from": "Accounts Receivable - AD",
             "paid_to": "Demo Bank Account - AD",
 
             "mode_of_payment": "Razorpay",
