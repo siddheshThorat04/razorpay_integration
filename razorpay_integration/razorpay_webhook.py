@@ -74,7 +74,22 @@ def handle_webhook():
 
         pe.insert(ignore_permissions=True)
         pe.submit()
+	# 🔥 Update Payment Request status
+	payment_requests = frappe.get_all(
+    	"Payment Request",
+    	filters={
+        	"reference_name": invoice.name,
+        	"status": ["!=", "Paid"]
+    	},
+    	fields=["name"]
+	)
 
+for pr in payment_requests:
+    pr_doc = frappe.get_doc("Payment Request", pr.name)
+
+    # Mark as paid
+    pr_doc.status = "Paid"
+    pr_doc.db_update()
         return {"status": "success"}
 
     except Exception:
