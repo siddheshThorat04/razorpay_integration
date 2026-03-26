@@ -7,7 +7,7 @@ def handle_webhook():
         data = frappe.request.get_json()
         event = data.get("event")
 
-        # Only process captured payments
+        # process captured payments
         if event != "payment.captured":
             return {"status": "ignored"}
 
