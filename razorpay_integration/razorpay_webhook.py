@@ -19,10 +19,14 @@ def handle_webhook():
         entity = data.get("payload", {}).get("payment", {}).get("entity", {})
 
         payment_id = entity.get("id")
-        amount = entity.get("amount", 0) / 100  # Razorpay sends in paise
+        amount = entity.get("amount", 0) / 100  # paise → rupees
         description = entity.get("description", "") or ""
 
-        frappe.log_error(str(data), "Razorpay Webhook Data")
+        # ✅ Safe logging (no crash)
+        frappe.log_error(
+            message=str(data)[:2000],
+            title="Razorpay Webhook Data"
+        )
 
         # 🔍 Extract invoice from description
         invoice_name = None
@@ -34,18 +38,21 @@ def handle_webhook():
                 break
 
         if not invoice_name:
-            frappe.log_error(description, "Invoice not found in description")
+            frappe.log_error(
+                message=description,
+                title="Invoice not found in description"
+            )
             return {"status": "no_invoice"}
 
         # Remove ACC- prefix if exists
         if "ACC-" in invoice_name:
             invoice_name = invoice_name.replace("ACC-", "")
 
-        # 🚫 Prevent duplicate entry
+        # 🚫 Prevent duplicate Payment Entry
         if frappe.db.exists("Payment Entry", {"reference_no": payment_id}):
             return {"status": "duplicate"}
 
-        # 📦 Fetch invoice
+        # 📦 Fetch Sales Invoice
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
         if invoice.outstanding_amount <= 0:
@@ -79,5 +86,8 @@ def handle_webhook():
         return {"status": "success"}
 
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Razorpay Webhook Error")
+        frappe.log_error(
+            message=frappe.get_traceback(),
+            title="Razorpay Webhook Error"
+        )
         return {"status": "error", "message": str(e)}
