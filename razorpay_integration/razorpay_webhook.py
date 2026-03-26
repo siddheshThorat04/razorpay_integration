@@ -3,10 +3,87 @@ import json
 import hmac
 import hashlib
 import re
+
 @frappe.whitelist(allow_guest=True)
 def handle_webhook():
-    frappe.log_error("WEBHOOK HIT", "RAZORPAY DEBUG")
-    return {"status": "ok"}
+    try:
+        data = frappe.request.get_json()
+        event = data.get("event")
+
+        frappe.log_error(str(data), "Razorpay Webhook Data")
+
+        if event != "payment.captured":
+            return {"status": "ignored"}
+
+        entity = data.get("payload", {}).get("payment", {}).get("entity", {})
+        payment_id = entity.get("id")
+        amount = entity.get("amount", 0) / 100
+        notes = entity.get("notes", {}) or {}
+
+        # 🔍 Get invoice from notes
+        invoice_name = notes.get("invoice") or notes.get("sales_invoice")
+
+        if not invoice_name:
+            frappe.log_error("Invoice not found in notes", "Webhook Error")
+            return {"status": "no_invoice"}
+
+        # ❌ Prevent duplicate
+        if frappe.db.exists("Payment Entry", {"reference_no": payment_id}):
+            return {"status": "duplicate"}
+
+        # 📦 Fetch invoice details
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+
+        if invoice.outstanding_amount <= 0:
+            return {"status": "already_paid"}
+
+        company = invoice.company
+        customer = invoice.customer
+
+        receivable_account = frappe.db.get_value(
+            "Company", company, "default_receivable_account"
+        )
+
+        bank_account = "Demo Bank Account - AD"  # ⚠️ CHANGE THIS
+
+        allocated = min(amount, invoice.outstanding_amount)
+
+        # 💰 Create Payment Entry
+        pe = frappe.get_doc({
+            "doctype": "Payment Entry",
+            "payment_type": "Receive",
+            "posting_date": frappe.utils.today(),
+            "company": company,
+            "mode_of_payment": "Razorpay",
+            "party_type": "Customer",
+            "party": customer,
+            "paid_from": receivable_account,
+            "paid_to": bank_account,
+            "paid_amount": amount,
+            "received_amount": amount,
+            "reference_no": payment_id,
+            "reference_date": frappe.utils.today(),
+            "remarks": f"Razorpay | {payment_id}",
+            "references": [{
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice_name,
+                "allocated_amount": allocated,
+                "total_amount": invoice.grand_total,
+                "outstanding_amount": invoice.outstanding_amount
+            }]
+        })
+
+        pe.insert(ignore_permissions=True)
+        pe.submit()
+
+        frappe.db.commit()
+
+        return {"status": "success", "payment_entry": pe.name}
+
+    except Exception as e:
+        frappe.log_error(str(e), "Webhook ERROR")
+        return {"status": "error", "message": str(e)}
+
 
 def verify_signature(raw_body: bytes, signature: str, secret: str) -> bool:
     expected = hmac.new(
