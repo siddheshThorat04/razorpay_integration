@@ -54,7 +54,7 @@ def handle_webhook():
 
             # 🔥 Dynamic correct account
             "paid_from": invoice.debit_to,
-            "paid_to": "Demo Bank Account - AD",
+            "paid_to": "Razorpay - D",
 
             "mode_of_payment": "Razorpay",
 
