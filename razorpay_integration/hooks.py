@@ -86,7 +86,7 @@ required_apps = ["frappe/crm"]
 # ------------
 
 # before_install = "razorpay_integration.install.before_install"
-# after_install = "razorpay_integration.install.after_install"
+after_install = "razorpay_integration.install.after_install"
 
 # Uninstallation
 # ------------
